@@ -1,0 +1,50 @@
+MODULE main
+
+VAR
+  estado : {Inactivo, Autenticando, Votando, Confirmado};
+  estado_votante : {NoRegistrado, Registrado, Autenticado, VotoEmitido};
+  ya_voto : boolean;
+  autenticacion_exitosa : boolean;
+  error : boolean;
+
+ASSIGN
+  init(estado) := Inactivo;
+  init(estado_votante) := Registrado;  
+  init(ya_voto) := FALSE;
+  init(autenticacion_exitosa) := FALSE; 
+  init(error) := FALSE;
+
+  next(estado) := case
+    (estado = Inactivo) : {Inactivo, Autenticando};
+
+    (estado = Autenticando) & autenticacion_exitosa & (estado_votante != VotoEmitido) & (estado_votante = Registrado) : Votando;
+    (estado = Autenticando) & autenticacion_exitosa & (estado_votante = VotoEmitido) : Inactivo;
+    (estado = Autenticando) & !autenticacion_exitosa : Inactivo;
+
+    (estado = Votando) : {Votando, Confirmado, Inactivo};
+    (estado = Confirmado) : Inactivo;
+
+    TRUE : estado;
+  esac;
+
+  next(estado_votante) := case
+    (estado = Autenticando) & autenticacion_exitosa & (estado_votante = Registrado) : Autenticado;
+    (estado = Votando) & next(estado) = Confirmado : VotoEmitido;
+    (estado = Autenticando) & !autenticacion_exitosa : estado_votante;
+
+    TRUE : estado_votante;
+  esac;
+
+  next(ya_voto) := case
+    (estado = Votando) & next(estado) = Confirmado : TRUE;
+    TRUE : ya_voto;
+  esac;
+
+  next(error) := case
+    (estado = Autenticando) & !autenticacion_exitosa : TRUE;
+    (estado = Inactivo) : FALSE;
+
+    TRUE : error;
+  esac;
+
+LTLSPEC G !(estado = Votando & ya_voto)

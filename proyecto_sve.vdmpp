@@ -1,0 +1,212 @@
+class Ciudadano
+types
+    DNI = seq of char;
+    Nombre = seq of char;
+    Huella = seq of char;
+    EstadoRegistro = <Activo> | <Inactivo> | <Suspendido>;
+
+    CiudadanoInfo :: 
+        dni : DNI
+        nombre : Nombre
+        huellaDigital : Huella
+        estado : EstadoRegistro;
+
+instance variables
+    public datos : CiudadanoInfo;
+
+inv len datos.dni = 8;
+inv forall x in set elems datos.dni & x in 
+    set {'0','1','2','3','4','5','6','7','8','9'};
+inv len datos.nombre > 0;
+inv len datos.huellaDigital > 0;  
+
+operations
+    public Ciudadano : DNI * Nombre * Huella * EstadoRegistro ==> Ciudadano
+    Ciudadano(v_dni, v_nombre, v_huella, v_estado) == (
+        datos := mk_CiudadanoInfo(v_dni, v_nombre, v_huella, v_estado);
+    );
+
+    public getDNI : () ==> DNI
+    getDNI() == return datos.dni;
+
+    public getNombre : () ==> Nombre
+    getNombre() == return datos.nombre;
+
+    public getHuella : () ==> Huella
+    getHuella() == return datos.huellaDigital;
+
+    public getEstado : () ==> EstadoRegistro
+    getEstado() == return datos.estado;
+
+end Ciudadano
+
+class RegistroElectoral
+types
+    DNI = seq of char;
+    CiudadanoTipo = Ciudadano;
+
+instance variables
+    public listaCiudadanos : map DNI to CiudadanoTipo := {|->};
+
+inv forall d in set dom listaCiudadanos & len d = 8;
+inv forall d in set dom listaCiudadanos & 
+    (forall c in set elems d & c in set {'0','1','2','3','4','5','6','7','8','9'});
+inv card dom listaCiudadanos = card rng listaCiudadanos;
+
+operations
+    public RegistroElectoral : () ==> RegistroElectoral
+    RegistroElectoral() == listaCiudadanos := {|->}
+    post listaCiudadanos = {|->};
+
+    public registrarCiudadano : CiudadanoTipo ==> bool
+    registrarCiudadano(c) ==
+    (
+        if not (c.getDNI() in set dom listaCiudadanos) then
+        (
+            listaCiudadanos := listaCiudadanos ++ { c.getDNI() |-> c };
+            return true
+        )
+        else
+            return false
+    );
+
+    public buscarCiudadano : DNI ==> CiudadanoTipo
+    buscarCiudadano(dni) == return listaCiudadanos(dni)
+    pre dni in set dom listaCiudadanos
+    post RESULT = listaCiudadanos(dni);
+
+    public verificarEstado : DNI ==> bool
+    verificarEstado(dni) == return listaCiudadanos(dni).getEstado() = <Activo>
+    pre dni in set dom listaCiudadanos;
+
+end RegistroElectoral
+
+
+class ValidadorIdentidad
+types
+    MetodoVerificacion = <Huella> | <DNI>;
+    DNI = seq of char;
+    Huella = seq of char;
+    RegistroTipo = RegistroElectoral;
+
+    ResultadoValidacion ::
+        dni : DNI
+        autenticado : bool
+        metodoUsado : MetodoVerificacion;
+
+instance variables
+    public metodoVerificacion : MetodoVerificacion := <Huella>;
+
+inv metodoVerificacion = <Huella> or metodoVerificacion = <DNI>;
+
+operations
+    public ValidadorIdentidad : MetodoVerificacion ==> ValidadorIdentidad
+    ValidadorIdentidad(m) == metodoVerificacion := m
+    post metodoVerificacion = m;
+
+    public compararDatos : DNI * Huella * RegistroTipo ==> bool
+    compararDatos(dni, huella, registro) == (
+        return (
+            (dni in set dom registro.listaCiudadanos) and
+            ((metodoVerificacion <> <Huella>) or 
+            (registro.buscarCiudadano(dni).getHuella() = huella))
+        )
+    )
+    pre len dni = 8
+    post (RESULT = true => dni in set dom registro.listaCiudadanos);
+
+    public confirmarAutenticidad : DNI * Huella * RegistroTipo ==> ResultadoValidacion
+    confirmarAutenticidad(dni, huella, registro) ==
+    (
+        return mk_ResultadoValidacion(
+            dni,
+            compararDatos(dni, huella, registro) and
+            (dni in set dom registro.listaCiudadanos and registro.verificarEstado(dni)),
+            metodoVerificacion
+        );
+    )
+    pre len dni = 8
+    post RESULT.dni = dni and
+        (RESULT.autenticado = true => dni in set dom registro.listaCiudadanos);
+
+end ValidadorIdentidad
+
+
+class Test
+
+instance variables
+    ciudadano1 : Ciudadano;
+    ciudadano2 : Ciudadano;
+    registro    : RegistroElectoral;
+    validador   : ValidadorIdentidad;
+    validadorDNI : ValidadorIdentidad;
+    validadorHuellaMala : ValidadorIdentidad;
+    r_dummy : bool := false;
+    r_comp_dni : bool := false;
+    r_comp_huella_mala : bool := false;
+
+operations
+
+public IniciarTest : () ==> seq of char
+IniciarTest() ==
+(
+    -- Crear ciudadanos
+    ciudadano1 := new Ciudadano("12345678", "Juan Pérez", "1a2b3c4d5e", <Activo>);
+    ciudadano2 := new Ciudadano("87654321", "María López", "a1b2c3d4e5", <Inactivo>);
+
+    -- Inicializar registro
+    registro := new RegistroElectoral();
+
+    -- Registrar ciudadanos
+    r_dummy := registro.registrarCiudadano(ciudadano1);
+    r_dummy := registro.registrarCiudadano(ciudadano2);
+    r_dummy := registro.registrarCiudadano(
+        new Ciudadano("33333333", "Ciudadano Tres", "H3", <Activo>)
+    );
+    r_dummy := registro.registrarCiudadano(ciudadano1); -- intento duplicado
+
+    -- Inicializar validadores
+    validador := new ValidadorIdentidad(<Huella>);
+    validadorDNI := new ValidadorIdentidad(<DNI>);
+
+    -- Cobertura de getters
+    r_dummy := ciudadano1.getNombre() = ciudadano1.getNombre();
+    r_dummy := ciudadano1.getEstado() = ciudadano1.getEstado();
+    r_dummy := ciudadano2.getNombre() = ciudadano2.getNombre();
+    r_dummy := ciudadano2.getEstado() = ciudadano2.getEstado();
+
+    -- Verificar estados
+    r_dummy := registro.verificarEstado(ciudadano1.getDNI());
+    r_dummy := registro.verificarEstado(ciudadano2.getDNI());
+
+    -- Comparaciones
+    r_comp_dni := validadorDNI.compararDatos(
+        ciudadano1.getDNI(), ciudadano1.getHuella(), registro
+    );
+
+    -- Validaciones de autenticidad
+    r_dummy := validador.confirmarAutenticidad(
+        ciudadano1.getDNI(), "xxxxxxxxxx", registro
+    ).autenticado;
+
+    r_dummy := validador.confirmarAutenticidad(
+        ciudadano1.getDNI(), ciudadano1.getHuella(), registro
+    ).autenticado;
+
+    -- Comparaciones de huellas incorrectas
+    validadorHuellaMala := new ValidadorIdentidad(<Huella>);
+    
+    r_comp_huella_mala := validadorHuellaMala.compararDatos(
+        ciudadano1.getDNI(), "00000000", registro);
+
+    r_dummy := validadorDNI.compararDatos(
+        ciudadano1.getDNI(), "00000000", registro);
+
+    r_dummy := validador.compararDatos(
+        ciudadano1.getDNI(), "huella_incorrecta", registro);
+    
+    return "Test finalizado";
+);
+
+end Test
+
